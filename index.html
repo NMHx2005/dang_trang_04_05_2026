@@ -210,18 +210,13 @@
                 glEnd();
             }
 
-            // Núi trái mở rộng — nâu tối, đỉnh nâu đất nhạt
-            mountain(-28,0, -21,5, -14,0,  0.28,0.20,0.14,  0.48,0.36,0.26);
-            // Núi 1 — nâu đá, đỉnh nâu nhạt
-            mountain(-20,0, -12,7,  -4,0,  0.32,0.23,0.16,  0.52,0.40,0.30);
-            // Núi 2 — cao nhất, đỉnh có tuyết trắng ngà
-            mountain(-15,0,  -8,9,  -1,0,  0.34,0.25,0.17,  0.88,0.85,0.80);
-            // Núi 3 — nâu đất, đỉnh nâu vàng nhạt
-            mountain( -5,0,   3,6,  11,0,  0.30,0.22,0.15,  0.50,0.38,0.28);
-            // Núi 4 — nâu đậm, đỉnh có tuyết trắng ngà
-            mountain(  4,0,  12,8,  20,0,  0.33,0.24,0.16,  0.86,0.83,0.78);
-            // Núi phải mở rộng — nâu tối, đỉnh nâu nhạt
-            mountain( 13,0,  20,5,  27,0,  0.27,0.19,0.13,  0.46,0.34,0.24);
+            // Tất cả núi: màu nâu đá ĐẬM TỐI, đỉnh chỉ tối hơn một chút — không sáng, không tuyết
+            mountain(-28,0, -21,5, -14,0,  0.26,0.17,0.10,  0.32,0.22,0.13); // Núi trái mở rộng
+            mountain(-20,0, -12,7,  -4,0,  0.28,0.19,0.12,  0.34,0.23,0.14); // Núi 1
+            mountain(-15,0,  -8,9,  -1,0,  0.30,0.20,0.13,  0.36,0.25,0.15); // Núi 2 — cao nhất
+            mountain( -5,0,   3,6,  11,0,  0.27,0.18,0.11,  0.33,0.22,0.13); // Núi 3
+            mountain(  4,0,  12,8,  20,0,  0.29,0.20,0.12,  0.35,0.24,0.14); // Núi 4
+            mountain( 13,0,  20,5,  27,0,  0.25,0.17,0.10,  0.31,0.21,0.12); // Núi phải mở rộng
 
             glEnable(GL_LIGHTING);
         }
@@ -234,8 +229,9 @@
             glNormal3f(0, 1, 0);
             glColor3f(0.28, 0.60, 0.18); // Xanh cỏ hơi trầm — tự nhiên hơn
             glBegin(GL_QUADS);
-                glVertex3f(-20, 0, -20);  glVertex3f(20, 0, -20);
-                glVertex3f( 20, 0,  20);  glVertex3f(-20, 0,  20);
+                // Mở rộng x=-30..30 để phủ hết chân núi (núi trải từ x=-28 đến x=27)
+                glVertex3f(-30, 0, -20);  glVertex3f(30, 0, -20);
+                glVertex3f( 30, 0,  20);  glVertex3f(-30, 0,  20);
             glEnd();
         }
 
