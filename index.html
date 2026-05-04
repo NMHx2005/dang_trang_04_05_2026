@@ -481,7 +481,10 @@
                 { speed: 0.025, offset: 15, cy: 20.5, cz: -13.5, rx: 3.2,  rz: 1.1 },
                 { speed: 0.032, offset:  0, cy: 17,   cz: -11,   rx: 2.1,  rz: 0.75 },
             ];
-            glColor3f(1.0, 1.0, 1.0);
+            // Màu mây đổi theo thời gian: ban ngày trắng, hoàng hôn hồng xám, đêm xám tối
+            var t = Math.max(0, Math.sin(sunAngle * Math.PI / 180));
+            var cR = 0.18 + 0.82 * t,  cG = 0.18 + 0.78 * t,  cB = 0.22 + 0.74 * t;
+            glColor3f(cR, cG, cB);
             for (var c = 0; c < cloudData.length; c++) {
                 var cl = cloudData[c];
                 var cx = -22 + cl.offset + (frameNumber * cl.speed) % 44;
