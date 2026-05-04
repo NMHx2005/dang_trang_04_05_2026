@@ -60,9 +60,8 @@
                 return;
             }
             camera = new Camera();
-            // Nhìn thẳng từ phía trước, hơi cao nhẹ để thấy cả mặt đất
-            // (0, 18, 48) → (0, 0, 0): camera thẳng góc với mặt làng, không lệch trái/phải
-            camera.lookAt(0, 18, 48,  0, 0, 0,  0, 1, 0);
+            // Nhìn thẳng từ phía trước, hướng lên điểm y=6 để thấy cả bầu trời + mặt trời đỉnh
+            camera.lookAt(0, 18, 48,  0, 6, 0,  0, 1, 0);
             camera.setScale(20);
             camera.installTrackball(display);
             initGL();
@@ -166,9 +165,9 @@
                 glColor3f(horR, horG, horB); // Chân trời — sáng nhạt
                 glVertex3f(-55, -1,  -19.8);
                 glVertex3f( 55, -1,  -19.8);
-                glColor3f(zenR, zenG, zenB); // Đỉnh trời — đậm sâu
-                glVertex3f( 55, 42,  -19.8);
-                glVertex3f(-55, 42,  -19.8);
+                glColor3f(zenR, zenG, zenB); // Đỉnh trời — đậm sâu, mở rộng lên y=60
+                glVertex3f( 55, 60,  -19.8);
+                glVertex3f(-55, 60,  -19.8);
             glEnd();
 
             // --- Ngôi sao ban đêm ---
@@ -245,22 +244,6 @@
         function drawGroundPatches() {
             glNormal3f(0, 1, 0);
             var h = 0.003; // Nhô lên 0.003 tránh z-fighting với ground
-
-            // Vài vệt cỏ vàng (cỏ khô)
-            glColor3f(0.48, 0.58, 0.22);
-            var dryPatches = [
-                [-14, -14, 3, 2], [ 8, 14, 2.5, 1.8], [-6, -16, 2, 1.5],
-                [ 14,  5, 2, 1.4], [-1, 15, 3, 1.8],   [15, -8, 2.2, 1.6]
-            ];
-            for (var i = 0; i < dryPatches.length; i++) {
-                var p = dryPatches[i];
-                glBegin(GL_QUADS);
-                    glVertex3f(p[0],       h, p[1]);
-                    glVertex3f(p[0]+p[2],  h, p[1]);
-                    glVertex3f(p[0]+p[2],  h, p[1]+p[3]);
-                    glVertex3f(p[0],       h, p[1]+p[3]);
-                glEnd();
-            }
 
             // Vài mảng đất trần (nơi cỏ mòn)
             glColor3f(0.52, 0.42, 0.28);
