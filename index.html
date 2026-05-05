@@ -1,871 +1,763 @@
 <!DOCTYPE html>
-<html>
-
+<html lang="vi">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Làng nhỏ 3D</title>
-    <script src="js/glsim.js"></script>
-    <script>
-
-        // ============================================================
-        // BIẾN TOÀN CỤC
-        // ============================================================
-
-        var camera;
-        var frameNumber = 0;
-        var sunAngle    = 30;   // Bắt đầu ban sáng để thấy ngay ánh sáng đẹp
-
-        // Vị trí sao cố định (tính trước một lần tránh giật mỗi frame)
-        // Phân bố theo góc vàng (golden angle) → trải đều tự nhiên không cần random
-        var starPositions = [];
-
-
-        // ============================================================
-        // initGL() — Khởi tạo OpenGL và tính trước vị trí sao
-        // ============================================================
-        function initGL() {
-            glEnable(GL_DEPTH_TEST);
-
-            // Lighting (Chương 4)
-            glEnable(GL_LIGHTING);
-            glEnable(GL_LIGHT0);
-            glEnable(GL_COLOR_MATERIAL);
-            glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
-            glLightModelfv(GL_LIGHT_MODEL_AMBIENT, [0.28, 0.28, 0.28, 1.0]);
-            glEnable(GL_NORMALIZE); // Sửa normal sau glScalef
-
-            // Tính trước 45 vị trí sao trong vùng trời — dùng golden angle
-            // để phân bố đều mà không cần random (tránh giật)
-            for (var i = 0; i < 45; i++) {
-                var a = i * 137.508 * Math.PI / 180; // Góc vàng ≈ 137.5°
-                var r = 2 + (i % 8) * 2.5;           // Bán kính xoắn ốc 2..19.5
-                starPositions.push({
-                    x:  r * Math.cos(a) * 2.2,        // Trải rộng theo X
-                    y:  8 + r * Math.sin(a) * 1.0,    // Cao từ 8 đến ~30
-                    z: -19.6                           // Ngay sau lớp núi (-19)
-                });
-            }
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { overflow: hidden; background: #000; font-family: Arial, sans-serif; }
+        canvas { display: block; }
+        #ui {
+            position: absolute; top: 14px; left: 18px;
+            color: #fff; font-size: 20px; font-weight: bold;
+            text-shadow: 1px 2px 6px rgba(0,0,0,0.7);
+            pointer-events: none;
         }
-
-
-        // ============================================================
-        // init()
-        // ============================================================
-        function init() {
-            try {
-                glsimUse("maincanvas");
-            } catch (e) {
-                document.getElementById("canvas-holder").innerHTML =
-                    "<p><b>Sorry, could not initialize WebGL: " + e + "</b></p>";
-                return;
-            }
-            camera = new Camera();
-            // Nhìn thẳng từ phía trước, hướng lên điểm y=6 để thấy cả bầu trời + mặt trời đỉnh
-            camera.lookAt(0, 18, 48,  0, 6, 0,  0, 1, 0);
-            camera.setScale(20);
-            camera.installTrackball(display);
-            initGL();
-            setInterval(animate, 1000 / 60);
+        #hint {
+            position: absolute; bottom: 16px; width: 100%; text-align: center;
+            color: #eee; font-size: 13px;
+            text-shadow: 0 1px 4px rgba(0,0,0,0.8);
+            pointer-events: none;
         }
-
-
-        // ============================================================
-        // animate()
-        // ============================================================
-        function animate() {
-            frameNumber += 1;
-            sunAngle = (sunAngle + 0.3) % 360;
-            display();
-        }
-
-
-        // ============================================================
-        // display() — Hàm vẽ chính
-        // ============================================================
-        function display() {
-            // t: 0 = đêm, 1 = giữa trưa
-            var t = Math.max(0, Math.sin(sunAngle * Math.PI / 180));
-
-            // Màu zenith (trên cùng) = màu clear buffer → không bị "rách" viền
-            // Đêm: xanh đen tím. Ngày: xanh dương sâu
-            var zenR = 0.02 + 0.18 * t,  zenG = 0.02 + 0.43 * t,  zenB = 0.12 + 0.73 * t;
-            glClearColor(zenR, zenG, zenB, 1);
-            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-            camera.apply();
-
-            // --- Di chuyển nguồn sáng theo vị trí mặt trời (§4.4.3) ---
-            var lx = 25 * Math.cos(sunAngle * Math.PI / 180);
-            var ly = 25 * Math.sin(sunAngle * Math.PI / 180);
-            glLightfv(GL_LIGHT0, GL_POSITION, [lx, Math.max(0.5, ly), -15, 1.0]);
-            var b = Math.max(0.05, ly / 25); // Độ sáng tỷ lệ độ cao mặt trời
-            glLightfv(GL_LIGHT0, GL_DIFFUSE,  [b,       b * 0.88, b * 0.65, 1]);
-            glLightfv(GL_LIGHT0, GL_SPECULAR, [b * 0.8, b * 0.82, b * 0.55, 1]);
-
-            // --- Vẽ theo thứ tự: xa nhất → gần nhất ---
-            drawSky();           // 1. Bầu trời gradient + sao đêm (xa nhất, z=-19.6)
-            drawMountains();     // 2. Dãy núi nền (z=-19)
-            drawGround();        // 3. Mặt đất xanh cỏ
-            drawGroundPatches(); // 4. Vệt đất, cỏ, lối đi bổ sung
-            drawRoad();          // 5. Đường làng
-            drawLake();          // 6. Hồ nước
-            drawSun();           // 7. Mặt trời (lighting OFF) — sau núi theo depth test
-            drawClouds();        // 8. Mây (lighting OFF)
-
-            // 10. Nhà — scaleXZ, scaleY, rotY khác nhau mỗi nhà
-            drawHouse(-8,  0,  -5,  0.78, 0.32, 0.12,  1.00, 1.00,   0); // Nhà 1 — mái đỏ gạch
-            drawHouse( 4,  0,  -6,  0.08, 0.38, 0.72,  0.90, 1.28,  25); // Nhà 2 — mái xanh nước biển, cao
-            drawHouse(-5,  0,   5,  0.70, 0.55, 0.20,  1.12, 0.88, -20); // Nhà 3 — mái vàng đất, bè
-            drawHouse( 7,  0,   3,  0.60, 0.25, 0.15,  0.88, 1.15,  40); // Nhà 4 — mái nâu đỏ, thanh
-            drawHouse(-7,  0, -12,  0.50, 0.30, 0.58,  1.00, 0.92,   0); // Nhà 5 — mái tím xám, xa
-
-            // 11. Cây — scale đa dạng
-            drawTree(-12, 0,   0,  1.00);
-            drawTree(  5, 0,   8,  1.30);
-            drawTree( 10, 0,  -4,  0.82);
-            drawTree( -3, 0,   9,  1.10);
-            drawTree( 11, 0,   7,  1.38);
-            drawTree(-10, 0,  -9,  0.90);
-            drawTree(  6, 0,  -9,  1.20);
-
-            drawWindmill(-11, 0, 6);
-            drawFence();
-
-            // Bóng đổ vẽ CUỐI CÙNG — sau tất cả vật thể để depth test hoạt động đúng:
-            // shadow tại y=0.04 > house floor y=0 → shadow pass depth test → hiện ra viền bóng
-            drawShadows();
-
-            glFlush();
-        }
-
-
-        // ============================================================
-        // drawSky() — Bầu trời gradient + ngôi sao ban đêm
-        // ============================================================
-        // Kỹ thuật gradient: GL_QUADS với màu khác nhau ở 2 cặp đỉnh.
-        // Shading GL_SMOOTH (mặc định) nội suy màu → gradient liền mạch.
-        //
-        // Sky quad đặt tại z=-19.6 (sau núi z=-19) — depth test tự xử lý thứ tự.
-        // Zenith color = glClearColor → không thấy "đường viền" khi trời trong.
-        //
-        // Sao: GL_POINTS tại vị trí đã tính trước, chỉ hiện khi t < 0.35 (sắp tối/đêm).
-        // Độ sáng sao tăng dần khi trời tối: alpha = 1 - t/0.35.
-        function drawSky() {
-            glDisable(GL_LIGHTING); // Bầu trời tự phát sáng — không cần lighting
-
-            var t    = Math.max(0, Math.sin(sunAngle * Math.PI / 180));
-
-            // Màu đỉnh trời (zenith) — phải khớp với glClearColor
-            var zenR = 0.02 + 0.18 * t,  zenG = 0.02 + 0.43 * t,  zenB = 0.12 + 0.73 * t;
-            // Màu chân trời (horizon) — ấm hơn, sáng hơn zenith
-            var horR = 0.08 + 0.50 * t,  horG = 0.10 + 0.68 * t,  horB = 0.18 + 0.75 * t;
-
-            // Sky quad tại z=-19.8 — sau núi (z=-19) và sau mặt trời (z=-19.5)
-            // Depth test tự xếp thứ tự: sky → sun → mountains → cảnh
-            glBegin(GL_QUADS);
-                glColor3f(horR, horG, horB); // Chân trời — sáng nhạt
-                glVertex3f(-55, -1,  -19.8);
-                glVertex3f( 55, -1,  -19.8);
-                glColor3f(zenR, zenG, zenB); // Đỉnh trời — đậm sâu, mở rộng lên y=60
-                glVertex3f( 55, 60,  -19.8);
-                glVertex3f(-55, 60,  -19.8);
-            glEnd();
-
-            // --- Ngôi sao ban đêm ---
-            // Chỉ hiển thị khi t < 0.35 (mặt trời gần/dưới đường chân trời)
-            if (t < 0.35) {
-                var starBright = 1.0 - t / 0.35; // 0 (lúc nhập nhoạng) → 1 (đêm sâu)
-                glColor3f(starBright, starBright * 0.95, starBright * 0.85); // Trắng hơi vàng
-                glBegin(GL_POINTS);
-                for (var i = 0; i < starPositions.length; i++) {
-                    var s = starPositions[i];
-                    // Chỉ vẽ sao nằm trong vùng trời hợp lý (không quá xa biên)
-                    if (s.y > 6 && s.y < 35 && Math.abs(s.x) < 28) {
-                        glVertex3f(s.x, s.y, -19.75); // Sao ở giữa sky(-19.8) và sun(-19.5)
-                    }
-                }
-                glEnd();
-            }
-
-            glEnable(GL_LIGHTING);
-        }
-
-
-        // ============================================================
-        // drawMountains() — Dãy núi nền với màu gradient đỉnh → chân
-        // ============================================================
-        // Kỹ thuật: glDisable(GL_LIGHTING) + per-vertex glColor3f().
-        // GL_SMOOTH shading (mặc định) nội suy màu từ chân (xám đậm) lên đỉnh
-        // (xám nhạt hoặc trắng tuyết) → không còn "nón" riêng rẽ trên đỉnh.
-        function drawMountains() {
-            glDisable(GL_LIGHTING); // Per-vertex color — lighting sẽ làm sai gradient
-
-            // Hàm vẽ 1 núi với màu gradient chân → đỉnh
-            // baseColor: màu RGB chân núi, peakColor: màu RGB đỉnh núi
-            function mountain(x1,y1, x2,y2, x3,y3, bR,bG,bB, pR,pG,pB) {
-                glBegin(GL_TRIANGLES);
-                    glColor3f(bR, bG, bB);  glVertex3f(x1, y1, -19); // chân trái
-                    glColor3f(bR, bG, bB);  glVertex3f(x3, y3, -19); // chân phải
-                    glColor3f(pR, pG, pB);  glVertex3f(x2, y2, -19); // đỉnh
-                glEnd();
-            }
-
-            // Tất cả núi: màu nâu đá ĐẬM TỐI, đỉnh chỉ tối hơn một chút — không sáng, không tuyết
-            mountain(-28,0, -21,5, -14,0,  0.26,0.17,0.10,  0.32,0.22,0.13); // Núi trái mở rộng
-            mountain(-20,0, -12,7,  -4,0,  0.28,0.19,0.12,  0.34,0.23,0.14); // Núi 1
-            mountain(-15,0,  -8,9,  -1,0,  0.30,0.20,0.13,  0.36,0.25,0.15); // Núi 2 — cao nhất
-            mountain( -5,0,   3,6,  11,0,  0.27,0.18,0.11,  0.33,0.22,0.13); // Núi 3
-            mountain(  4,0,  12,8,  20,0,  0.29,0.20,0.12,  0.35,0.24,0.14); // Núi 4
-            mountain( 13,0,  20,5,  27,0,  0.25,0.17,0.10,  0.31,0.21,0.12); // Núi phải mở rộng
-
-            glEnable(GL_LIGHTING);
-        }
-
-
-        // ============================================================
-        // drawGround() — Mặt đất xanh cỏ
-        // ============================================================
-        function drawGround() {
-            glNormal3f(0, 1, 0);
-            glColor3f(0.28, 0.60, 0.18); // Xanh cỏ hơi trầm — tự nhiên hơn
-            glBegin(GL_QUADS);
-                // Mở rộng x=-30..30 để phủ hết chân núi (núi trải từ x=-28 đến x=27)
-                glVertex3f(-30, 0, -20);  glVertex3f(30, 0, -20);
-                glVertex3f( 30, 0,  20);  glVertex3f(-30, 0,  20);
-            glEnd();
-        }
-
-
-        // ============================================================
-        // drawGroundPatches() — Vá màu mặt đất: cỏ khô, đất, lối đi
-        // ============================================================
-        // Vẽ các mảng GL_QUADS nhỏ trên mặt đất (y=0.003) với màu hơi khác
-        // → tạo cảm giác mặt đất tự nhiên, không đơn điệu một màu xanh đều.
-        // Lối đi từ đường ra mỗi ngôi nhà dùng màu đất nhạt.
-        function drawGroundPatches() {
-            glNormal3f(0, 1, 0);
-            var h = 0.003; // Nhô lên 0.003 tránh z-fighting với ground
-
-            // Vài mảng đất trần (nơi cỏ mòn)
-            glColor3f(0.52, 0.42, 0.28);
-            var dirtPatches = [
-                [-9, -7, 1.5, 1.2], [5, -8, 1.2, 1.0], [-6, 3, 1.3, 0.9],
-                [ 8,  1, 1.0, 1.2], [-8, -14, 1.5, 1.0]
-            ];
-            for (var i = 0; i < dirtPatches.length; i++) {
-                var p = dirtPatches[i];
-                glBegin(GL_QUADS);
-                    glVertex3f(p[0],       h, p[1]);
-                    glVertex3f(p[0]+p[2],  h, p[1]);
-                    glVertex3f(p[0]+p[2],  h, p[1]+p[3]);
-                    glVertex3f(p[0],       h, p[1]+p[3]);
-                glEnd();
-            }
-
-            // Lối đi ngắn từ đường đến từng nhà (màu sỏi/đất nén)
-            glColor3f(0.60, 0.52, 0.40);
-            var paths = [
-                // [x1, z1,  x2, z2,  rộng]  — đường từ sát hàng rào đến gần nhà
-                [-1.5, -5,  -7.5, -5,  0.7],  // Đến nhà 1
-                [ 1.5, -6,   3.5, -6,  0.7],  // Đến nhà 2
-                [-1.5,  5,  -4.5,  5,  0.7],  // Đến nhà 3
-                [ 1.5,  3,   6.5,  3,  0.7],  // Đến nhà 4
-            ];
-            for (var i = 0; i < paths.length; i++) {
-                var p = paths[i];
-                var dx = p[2] - p[0], dz = p[3] - p[1];
-                var len = Math.sqrt(dx*dx + dz*dz);
-                // Pháp tuyến vuông góc với đường đi (để tạo chiều rộng)
-                var nx = -dz / len * p[4] * 0.5;
-                var nz =  dx / len * p[4] * 0.5;
-                glBegin(GL_QUADS);
-                    glVertex3f(p[0]-nx, h, p[1]-nz);
-                    glVertex3f(p[0]+nx, h, p[1]+nz);
-                    glVertex3f(p[2]+nx, h, p[3]+nz);
-                    glVertex3f(p[2]-nx, h, p[3]-nz);
-                glEnd();
-            }
-        }
-
-
-        // ============================================================
-        // drawShadows() — Bóng đổ giả theo hướng mặt trời
-        // ============================================================
-        // Tâm oval bóng được TỊNH TIẾN theo hướng ngược với mặt trời:
-        //   offset_x = -sunX / ey * h * k  (đông-tây khi mặt trời di chuyển)
-        //   offset_z = +19.5  / ey * h * k  (hơi về phía trước vì sun ở z=-19.5)
-        // ey = max(sunY, 5): giới hạn chiều dài bóng khi mặt trời sát chân trời.
-        // Ban đêm (sunY <= 0): không vẽ bóng.
-        function drawShadows() {
-            var sunX = 25 * Math.cos(sunAngle * Math.PI / 180);
-            var sunY = 25 * Math.sin(sunAngle * Math.PI / 180);
-
-            if (sunY <= 0) return; // Đêm: không có bóng mặt trời
-
-            glDisable(GL_LIGHTING);
-
-            var ey = Math.max(sunY, 5); // Giới hạn độ dài bóng khi trời sắp tối
-
-            // Vẽ oval bóng tại (ox, oz), tịnh tiến theo hướng mặt trời
-            // h: chiều cao đại diện của vật thể (quyết định độ dài bóng)
-            function shadowOval(ox, oz, rx, rz, h) {
-                var k  = 0.50;                       // Hệ số tỷ lệ (0.5 = bóng vừa phải)
-                var dx = -sunX  / ey * h * k;        // Offset X: trái/phải theo mặt trời
-                var dz =  19.5  / ey * h * k * 0.4;  // Offset Z nhỏ hơn (sun ở z=-19.5)
-                glBegin(GL_POLYGON);
-                for (var i = 0; i < 24; i++) {
-                    var a = i * 2 * Math.PI / 24;
-                    glVertex3f(ox + dx + rx * Math.cos(a), 0.04,
-                               oz + dz + rz * Math.sin(a));
-                }
-                glEnd();
-            }
-
-            // Bóng nhà (h=2.5: chiều cao tường nhà)
-            glColor3f(0.13, 0.21, 0.09);
-            shadowOval(-8,  -5,  3.2, 2.8, 2.5); // Nhà 1
-            shadowOval( 4,  -6,  3.0, 2.6, 2.5); // Nhà 2
-            shadowOval(-5,   5,  3.5, 3.0, 2.5); // Nhà 3
-            shadowOval( 7,   3,  2.8, 2.4, 2.5); // Nhà 4
-            shadowOval(-7, -12,  3.0, 2.6, 2.5); // Nhà 5
-
-            // Bóng cây (h=3.5: giữa thân cây và tán lá)
-            glColor3f(0.10, 0.18, 0.06);
-            shadowOval(-12,  0,  1.5, 1.3, 3.5);
-            shadowOval(  5,  8,  1.9, 1.7, 3.5);
-            shadowOval( 10, -4,  1.3, 1.1, 3.5);
-            shadowOval( -3,  9,  1.7, 1.4, 3.5);
-            shadowOval( 11,  7,  2.1, 1.8, 3.5);
-            shadowOval(-10, -9,  1.4, 1.2, 3.5);
-            shadowOval(  6, -9,  1.8, 1.5, 3.5);
-
-            // Bóng cối xay gió (h=3.0: giữa thân tháp)
-            glColor3f(0.12, 0.20, 0.08);
-            shadowOval(-11, 6, 1.5, 1.2, 3.0);
-
-            glEnable(GL_LIGHTING);
-        }
-
-
-        // ============================================================
-        // drawRoad() — Đường + lề đường + vạch kẻ
-        // ============================================================
-        function drawRoad() {
-            glNormal3f(0, 1, 0);
-
-            // Lề đường — dải đất sáng 2 bên, tạo ranh giới cỏ/đường rõ hơn
-            glColor3f(0.52, 0.46, 0.36);
-            glBegin(GL_QUADS);
-                glVertex3f(-2.2, 0.006, -20);  glVertex3f(-1.5, 0.006, -20);
-                glVertex3f(-1.5, 0.006,  20);  glVertex3f(-2.2, 0.006,  20);
-            glEnd();
-            glBegin(GL_QUADS);
-                glVertex3f( 1.5, 0.006, -20);  glVertex3f( 2.2, 0.006, -20);
-                glVertex3f( 2.2, 0.006,  20);  glVertex3f( 1.5, 0.006,  20);
-            glEnd();
-
-            // Mặt đường chính — xám đậm nhựa đường
-            glColor3f(0.28, 0.28, 0.28);
-            glBegin(GL_QUADS);
-                glVertex3f(-1.5, 0.01, -20);  glVertex3f( 1.5, 0.01, -20);
-                glVertex3f( 1.5, 0.01,  20);  glVertex3f(-1.5, 0.01,  20);
-            glEnd();
-
-            // Vạch kẻ trắng giữa đường — đứt nét
-            glColor3f(0.92, 0.90, 0.85);
-            for (var z = -18; z < 20; z += 3) {
-                glBegin(GL_QUADS);
-                    glVertex3f(-0.07, 0.02, z);      glVertex3f(0.07, 0.02, z);
-                    glVertex3f( 0.07, 0.02, z+1.5);  glVertex3f(-0.07, 0.02, z+1.5);
-                glEnd();
-            }
-        }
-
-
-        // ============================================================
-        // drawLake() — Hồ nước hai lớp
-        // ============================================================
-        function drawLake() {
-            glNormal3f(0, 1, 0);
-
-            glColor3f(0.22, 0.60, 0.88); // Bờ hồ — xanh dương nhạt
-            glBegin(GL_POLYGON);
-            for (var i = 0; i <= 16; i++) {
-                var a = i * 2 * Math.PI / 16;
-                glVertex3f(11 + 2.5 * Math.cos(a), 0.012, 13 + 1.7 * Math.sin(a));
-            }
-            glEnd();
-
-            glColor3f(0.08, 0.38, 0.68); // Mặt nước sâu — xanh đậm
-            glBegin(GL_POLYGON);
-            for (var i = 0; i <= 16; i++) {
-                var a = i * 2 * Math.PI / 16;
-                glVertex3f(11 + 2.0 * Math.cos(a), 0.018, 13 + 1.3 * Math.sin(a));
-            }
-            glEnd();
-        }
-
-
-        // ============================================================
-        // drawSun() — Mặt trời + tia sáng
-        // ============================================================
-        function drawSun() {
-            var sunX = 25 * Math.cos(sunAngle * Math.PI / 180);
-            var sunY = 25 * Math.sin(sunAngle * Math.PI / 180);
-            if (sunY <= 0) return;
-
-            // sunZ = -19.5: đặt mặt trời GIỮA sky(-19.8) và núi(-19.0).
-            // Khi mặt trời hạ thấp, depth test tự cho núi che khuất mặt trời
-            // → hiệu ứng hoàng hôn sau núi hoàn toàn tự nhiên, không cần tính toán thêm.
-
-            glDisable(GL_LIGHTING);
-            glPushMatrix();
-            glTranslatef(sunX, sunY, -19.5);
-
-            // Hào quang nhạt (outer glow)
-            glColor3f(1.0, 0.92, 0.50);
-            glBegin(GL_POLYGON);
-            for (var i = 0; i <= 36; i++) {
-                var r = i * Math.PI / 18;
-                glVertex3f(2.2 * Math.cos(r), 2.2 * Math.sin(r), 0);
-            }
-            glEnd();
-
-            // Đĩa chính vàng sáng
-            glColor3f(1.0, 0.98, 0.20);
-            glBegin(GL_POLYGON);
-            for (var i = 0; i <= 36; i++) {
-                var r = i * Math.PI / 18;
-                glVertex3f(1.5 * Math.cos(r), 1.5 * Math.sin(r), 0);
-            }
-            glEnd();
-
-            // 8 tia sáng
-            glColor3f(1.0, 0.88, 0.20);
-            glBegin(GL_LINES);
-            for (var i = 0; i < 8; i++) {
-                var r = i * Math.PI / 4;
-                glVertex3f(1.6 * Math.cos(r), 1.6 * Math.sin(r), 0);
-                glVertex3f(2.5 * Math.cos(r), 2.5 * Math.sin(r), 0);
-            }
-            glEnd();
-
-            glPopMatrix();
-            glEnable(GL_LIGHTING);
-        }
-
-
-        // ============================================================
-        // drawClouds() — Mây di chuyển
-        // ============================================================
-        function drawClouds() {
-            glDisable(GL_LIGHTING);
-            var cloudData = [
-                { speed: 0.04,  offset:  5, cy: 18,   cz: -12,   rx: 2.6,  rz: 0.9 },
-                { speed: 0.025, offset: 15, cy: 20.5, cz: -13.5, rx: 3.2,  rz: 1.1 },
-                { speed: 0.032, offset:  0, cy: 17,   cz: -11,   rx: 2.1,  rz: 0.75 },
-            ];
-            // Màu mây đổi theo thời gian: ban ngày trắng, hoàng hôn hồng xám, đêm xám tối
-            var t = Math.max(0, Math.sin(sunAngle * Math.PI / 180));
-            var cR = 0.18 + 0.82 * t,  cG = 0.18 + 0.78 * t,  cB = 0.22 + 0.74 * t;
-            glColor3f(cR, cG, cB);
-            for (var c = 0; c < cloudData.length; c++) {
-                var cl = cloudData[c];
-                var cx = -22 + cl.offset + (frameNumber * cl.speed) % 44;
-                glPushMatrix();
-                glTranslatef(cx, cl.cy, cl.cz);
-                // 3 elip chồng tạo hình mây mềm
-                glBegin(GL_POLYGON);
-                for (var i = 0; i <= 16; i++) {
-                    var a = i * 2 * Math.PI / 16;
-                    glVertex3f(cl.rx * Math.cos(a), cl.rz * 0.55 * Math.sin(a), 0);
-                }
-                glEnd();
-                glBegin(GL_POLYGON);
-                for (var i = 0; i <= 12; i++) {
-                    var a = i * 2 * Math.PI / 12;
-                    glVertex3f(-cl.rx*0.58 + cl.rx*0.65*Math.cos(a), cl.rz*0.45*Math.sin(a), 0);
-                }
-                glEnd();
-                glBegin(GL_POLYGON);
-                for (var i = 0; i <= 12; i++) {
-                    var a = i * 2 * Math.PI / 12;
-                    glVertex3f( cl.rx*0.55 + cl.rx*0.60*Math.cos(a), cl.rz*0.40*Math.sin(a), 0);
-                }
-                glEnd();
-                glPopMatrix();
-            }
-            glEnable(GL_LIGHTING);
-        }
-
-
-        // ============================================================
-        // drawHouse(x, y, z, roofR, roofG, roofB, scaleXZ, scaleY, rotY)
-        // ============================================================
-        // CẢI TIẾN so với phiên bản cũ:
-        //   - Màu tường ấm hơn (kem vàng nhẹ thay vì trắng lạnh)
-        //   - Thêm ỐNG KHÓI (hình hộp nhỏ trên nóc mái, màu gạch đỏ)
-        //   - Thêm BẬC THỀM (tấm phẳng phía trước cửa, màu đá xám)
-        //   - Khung cửa sổ (viền tối quanh kính)
-        //   - Normal vectors đầy đủ cho lighting đúng
-        function drawHouse(x, y, z, roofR, roofG, roofB, scaleXZ, scaleY, rotY) {
-            glPushMatrix();
-            glTranslatef(x, y, z);
-            glRotatef(rotY, 0, 1, 0);
-            glScalef(scaleXZ, scaleY, scaleXZ);
-
-            // ========== TƯỜNG ==========
-            glColor3f(0.94, 0.88, 0.76); // Kem vàng ấm — màu vôi nắng
-
-            glNormal3f(0, 0, 1); // Mặt trước
-            glBegin(GL_QUADS);
-                glVertex3f(-1.5, 0, 1.5);  glVertex3f(1.5, 0, 1.5);
-                glVertex3f(1.5, 2.5, 1.5); glVertex3f(-1.5, 2.5, 1.5);
-            glEnd();
-
-            glNormal3f(0, 0, -1); // Mặt sau
-            glBegin(GL_QUADS);
-                glVertex3f( 1.5, 0, -1.5);  glVertex3f(-1.5, 0, -1.5);
-                glVertex3f(-1.5, 2.5, -1.5); glVertex3f(1.5, 2.5, -1.5);
-            glEnd();
-
-            glNormal3f(-1, 0, 0); // Mặt trái
-            glBegin(GL_QUADS);
-                glVertex3f(-1.5, 0, -1.5); glVertex3f(-1.5, 0, 1.5);
-                glVertex3f(-1.5, 2.5, 1.5); glVertex3f(-1.5, 2.5, -1.5);
-            glEnd();
-
-            glNormal3f(1, 0, 0); // Mặt phải
-            glBegin(GL_QUADS);
-                glVertex3f(1.5, 0, 1.5);  glVertex3f(1.5, 0, -1.5);
-                glVertex3f(1.5, 2.5, -1.5); glVertex3f(1.5, 2.5, 1.5);
-            glEnd();
-
-            glNormal3f(0, 1, 0); // Trần nhà
-            glBegin(GL_QUADS);
-                glVertex3f(-1.5, 2.5, -1.5); glVertex3f(1.5, 2.5, -1.5);
-                glVertex3f(1.5, 2.5, 1.5);   glVertex3f(-1.5, 2.5, 1.5);
-            glEnd();
-
-            // ========== MÁI NHÀ ==========
-            glColor3f(roofR, roofG, roofB);
-
-            glNormal3f(0, 0, 1); // Đầu hồi trước
-            glBegin(GL_TRIANGLES);
-                glVertex3f(-1.8, 2.5, 1.5); glVertex3f(1.8, 2.5, 1.5); glVertex3f(0.0, 4.0, 1.5);
-            glEnd();
-
-            glNormal3f(0, 0, -1); // Đầu hồi sau
-            glBegin(GL_TRIANGLES);
-                glVertex3f(1.8, 2.5, -1.5); glVertex3f(-1.8, 2.5, -1.5); glVertex3f(0.0, 4.0, -1.5);
-            glEnd();
-
-            glNormal3f(-0.64, 0.77, 0); // Dốc trái
-            glBegin(GL_QUADS);
-                glVertex3f(-1.8, 2.5, -1.5); glVertex3f(-1.8, 2.5, 1.5);
-                glVertex3f(0.0, 4.0, 1.5);   glVertex3f(0.0, 4.0, -1.5);
-            glEnd();
-
-            glNormal3f(0.64, 0.77, 0); // Dốc phải
-            glBegin(GL_QUADS);
-                glVertex3f(1.8, 2.5, 1.5);  glVertex3f(1.8, 2.5, -1.5);
-                glVertex3f(0.0, 4.0, -1.5); glVertex3f(0.0, 4.0, 1.5);
-            glEnd();
-
-            // ========== ỐNG KHÓI ==========
-            // Nằm trên dốc phải mái (x=0.75, z=0), cao từ y=3.3 đến y=4.8
-            // Màu gạch đỏ đậm — nổi bật trên mái
-            glColor3f(0.60, 0.22, 0.10);
-            var cx = 0.75, cy1 = 3.3, cy2 = 4.8, cw = 0.14;
-
-            glNormal3f(0, 0, 1); // Mặt trước ống khói
-            glBegin(GL_QUADS);
-                glVertex3f(cx-cw, cy1,  cw);  glVertex3f(cx+cw, cy1,  cw);
-                glVertex3f(cx+cw, cy2,  cw);  glVertex3f(cx-cw, cy2,  cw);
-            glEnd();
-
-            glNormal3f(0, 0, -1); // Mặt sau ống khói
-            glBegin(GL_QUADS);
-                glVertex3f(cx+cw, cy1, -cw);  glVertex3f(cx-cw, cy1, -cw);
-                glVertex3f(cx-cw, cy2, -cw);  glVertex3f(cx+cw, cy2, -cw);
-            glEnd();
-
-            glNormal3f(-1, 0, 0); // Mặt trái ống khói
-            glBegin(GL_QUADS);
-                glVertex3f(cx-cw, cy1, -cw);  glVertex3f(cx-cw, cy1,  cw);
-                glVertex3f(cx-cw, cy2,  cw);  glVertex3f(cx-cw, cy2, -cw);
-            glEnd();
-
-            glNormal3f(1, 0, 0); // Mặt phải ống khói
-            glBegin(GL_QUADS);
-                glVertex3f(cx+cw, cy1,  cw);  glVertex3f(cx+cw, cy1, -cw);
-                glVertex3f(cx+cw, cy2, -cw);  glVertex3f(cx+cw, cy2,  cw);
-            glEnd();
-
-            glNormal3f(0, 1, 0); // Miệng ống khói (trên cùng) — màu tối hơn
-            glColor3f(0.20, 0.12, 0.08);
-            glBegin(GL_QUADS);
-                glVertex3f(cx-cw, cy2, -cw);  glVertex3f(cx+cw, cy2, -cw);
-                glVertex3f(cx+cw, cy2,  cw);  glVertex3f(cx-cw, cy2,  cw);
-            glEnd();
-
-            // ========== BẬC THỀM ==========
-            // Tấm đá phẳng phía trước cửa: x từ -0.55 đến 0.55, z từ 1.5 đến 2.1
-            glColor3f(0.72, 0.68, 0.62); // Xám đá
-            glNormal3f(0, 1, 0); // Mặt trên bậc thềm
-            glBegin(GL_QUADS);
-                glVertex3f(-0.55, 0.04, 1.50);  glVertex3f(0.55, 0.04, 1.50);
-                glVertex3f( 0.55, 0.04, 2.08);  glVertex3f(-0.55, 0.04, 2.08);
-            glEnd();
-            glColor3f(0.58, 0.54, 0.50); // Cạnh trước bậc thềm — tối hơn
-            glNormal3f(0, 0, 1);
-            glBegin(GL_QUADS);
-                glVertex3f(-0.55, 0,    2.08);  glVertex3f( 0.55, 0,    2.08);
-                glVertex3f( 0.55, 0.04, 2.08);  glVertex3f(-0.55, 0.04, 2.08);
-            glEnd();
-
-            // ========== CỬA RA VÀO ==========
-            glNormal3f(0, 0, 1);
-            glColor3f(0.42, 0.22, 0.08); // Nâu gỗ đậm
-            glBegin(GL_QUADS);
-                glVertex3f(-0.4, 0, 1.51);   glVertex3f(0.4, 0, 1.51);
-                glVertex3f(0.4, 1.2, 1.51);  glVertex3f(-0.4, 1.2, 1.51);
-            glEnd();
-
-            // Tay nắm cửa nhỏ
-            glColor3f(0.75, 0.65, 0.20); // Vàng đồng
-            glBegin(GL_QUADS);
-                glVertex3f( 0.25, 0.55, 1.52);  glVertex3f( 0.32, 0.55, 1.52);
-                glVertex3f( 0.32, 0.65, 1.52);  glVertex3f( 0.25, 0.65, 1.52);
-            glEnd();
-
-            // ========== CỬA SỔ với KHUNG + KÍNH SPECULAR ==========
-            // Khung cửa sổ — màu gỗ tối
-            glColor3f(0.38, 0.28, 0.15);
-            glNormal3f(0, 0, 1);
-
-            // Khung cửa sổ trái
-            glBegin(GL_QUADS); // Trên
-                glVertex3f(-1.20, 1.75, 1.508);  glVertex3f(-0.60, 1.75, 1.508);
-                glVertex3f(-0.60, 1.85, 1.508);  glVertex3f(-1.20, 1.85, 1.508);
-            glEnd();
-            glBegin(GL_QUADS); // Dưới
-                glVertex3f(-1.20, 0.95, 1.508);  glVertex3f(-0.60, 0.95, 1.508);
-                glVertex3f(-0.60, 1.05, 1.508);  glVertex3f(-1.20, 1.05, 1.508);
-            glEnd();
-            glBegin(GL_QUADS); // Trái
-                glVertex3f(-1.20, 0.95, 1.508);  glVertex3f(-1.10, 0.95, 1.508);
-                glVertex3f(-1.10, 1.85, 1.508);  glVertex3f(-1.20, 1.85, 1.508);
-            glEnd();
-            glBegin(GL_QUADS); // Phải
-                glVertex3f(-0.70, 0.95, 1.508);  glVertex3f(-0.60, 0.95, 1.508);
-                glVertex3f(-0.60, 1.85, 1.508);  glVertex3f(-0.70, 1.85, 1.508);
-            glEnd();
-
-            // Khung cửa sổ phải (đối xứng)
-            glBegin(GL_QUADS); // Trên
-                glVertex3f(0.60, 1.75, 1.508);  glVertex3f(1.20, 1.75, 1.508);
-                glVertex3f(1.20, 1.85, 1.508);  glVertex3f(0.60, 1.85, 1.508);
-            glEnd();
-            glBegin(GL_QUADS); // Dưới
-                glVertex3f(0.60, 0.95, 1.508);  glVertex3f(1.20, 0.95, 1.508);
-                glVertex3f(1.20, 1.05, 1.508);  glVertex3f(0.60, 1.05, 1.508);
-            glEnd();
-            glBegin(GL_QUADS); // Trái
-                glVertex3f(0.60, 0.95, 1.508);  glVertex3f(0.70, 0.95, 1.508);
-                glVertex3f(0.70, 1.85, 1.508);  glVertex3f(0.60, 1.85, 1.508);
-            glEnd();
-            glBegin(GL_QUADS); // Phải
-                glVertex3f(1.10, 0.95, 1.508);  glVertex3f(1.20, 0.95, 1.508);
-                glVertex3f(1.20, 1.85, 1.508);  glVertex3f(1.10, 1.85, 1.508);
-            glEnd();
-
-            // Kính cửa sổ — specular cao (§4.2.1)
-            glMaterialfv(GL_FRONT_AND_BACK, GL_SPECULAR,  [0.85, 0.92, 1.0, 1.0]);
-            glMaterialf (GL_FRONT_AND_BACK, GL_SHININESS, 88.0);
-            glColor3f(0.52, 0.78, 0.98); // Xanh kính sáng
-
-            glBegin(GL_QUADS); // Kính trái
-                glVertex3f(-1.12, 1.05, 1.51);  glVertex3f(-0.68, 1.05, 1.51);
-                glVertex3f(-0.68, 1.75, 1.51);  glVertex3f(-1.12, 1.75, 1.51);
-            glEnd();
-            glBegin(GL_QUADS); // Kính phải
-                glVertex3f(0.68, 1.05, 1.51);  glVertex3f(1.12, 1.05, 1.51);
-                glVertex3f(1.12, 1.75, 1.51);  glVertex3f(0.68, 1.75, 1.51);
-            glEnd();
-
-            glMaterialfv(GL_FRONT_AND_BACK, GL_SPECULAR,  [0.0, 0.0, 0.0, 1.0]);
-            glMaterialf (GL_FRONT_AND_BACK, GL_SHININESS, 0.0);
-
-            glPopMatrix();
-        }
-
-
-        // ============================================================
-        // drawTree(x, y, z, scale) — Cây thông 3 tầng lá + normal
-        // ============================================================
-        function drawTree(x, y, z, scale) {
-            glPushMatrix();
-            glTranslatef(x, y, z);
-            glScalef(scale, scale, scale);
-
-            // Thân cây — nâu gỗ tự nhiên
-            glColor3f(0.48, 0.30, 0.12);
-            glBegin(GL_QUAD_STRIP);
-            for (var i = 0; i <= 12; i++) {
-                var rad = i * Math.PI / 6;
-                var c = Math.cos(rad), s = Math.sin(rad);
-                glNormal3f(c, 0, s);
-                glVertex3f(0.2*c, 0, 0.2*s);
-                glVertex3f(0.2*c, 2, 0.2*s);
-            }
-            glEnd();
-
-            // Tầng lá 1 — to, xanh sáng
-            glColor3f(0.12, 0.55, 0.15);
-            glBegin(GL_TRIANGLE_FAN);
-                glNormal3f(0, 1, 0);
-                glVertex3f(0, 4.5, 0);
-                for (var i = 0; i <= 20; i++) {
-                    var a = i * 2 * Math.PI / 20;
-                    glNormal3f(0.90*Math.cos(a), 0.43, 0.90*Math.sin(a));
-                    glVertex3f(1.2*Math.cos(a), 2.0, 1.2*Math.sin(a));
-                }
-            glEnd();
-
-            // Tầng lá 2
-            glColor3f(0.08, 0.48, 0.12);
-            glBegin(GL_TRIANGLE_FAN);
-                glNormal3f(0, 1, 0);
-                glVertex3f(0, 5.5, 0);
-                for (var i = 0; i <= 20; i++) {
-                    var a = i * 2 * Math.PI / 20;
-                    glNormal3f(0.94*Math.cos(a), 0.34, 0.94*Math.sin(a));
-                    glVertex3f(0.9*Math.cos(a), 3.0, 0.9*Math.sin(a));
-                }
-            glEnd();
-
-            // Tầng lá 3 — nhỏ, ngọn cây
-            glColor3f(0.05, 0.42, 0.10);
-            glBegin(GL_TRIANGLE_FAN);
-                glNormal3f(0, 1, 0);
-                glVertex3f(0, 6.5, 0);
-                for (var i = 0; i <= 20; i++) {
-                    var a = i * 2 * Math.PI / 20;
-                    glNormal3f(0.97*Math.cos(a), 0.23, 0.97*Math.sin(a));
-                    glVertex3f(0.6*Math.cos(a), 4.0, 0.6*Math.sin(a));
-                }
-            glEnd();
-
-            glPopMatrix();
-        }
-
-
-        // ============================================================
-        // drawWindmill(x, y, z) — Cối xay gió
-        // ============================================================
-        function drawWindmill(x, y, z) {
-            glPushMatrix();
-            glTranslatef(x, y, z);
-
-            // Trụ tháp
-            glColor3f(0.78, 0.76, 0.70);
-            glBegin(GL_QUAD_STRIP);
-            for (var i = 0; i <= 10; i++) {
-                var r = i * 2 * Math.PI / 10;
-                var c = Math.cos(r), s = Math.sin(r);
-                glNormal3f(c, 0, s);
-                glVertex3f(0.35*c, 0, 0.35*s);
-                glVertex3f(0.20*c, 5, 0.20*s);
-            }
-            glEnd();
-
-            // Cụm cánh quạt
-            glPushMatrix();
-            glTranslatef(0, 5, 0);
-            glRotatef(frameNumber * 2, 0, 0, 1);
-
-            for (var b = 0; b < 3; b++) {
-                glPushMatrix();
-                glRotatef(b * 120, 0, 0, 1);
-                glColor3f(0.88, 0.86, 0.80);
-                glNormal3f(0, 0, 1);
-                glBegin(GL_TRIANGLES);
-                    glVertex3f(0.0, 0.0, 0.05);  glVertex3f(2.0, 0.2, 0.05);  glVertex3f(0.1, 0.3, 0.05);
-                glEnd();
-                glNormal3f(0, 0, -1);
-                glBegin(GL_TRIANGLES);
-                    glVertex3f(0.0, 0.0, -0.05);  glVertex3f(0.1, 0.3, -0.05);  glVertex3f(2.0, 0.2, -0.05);
-                glEnd();
-                glPopMatrix();
-            }
-
-            glNormal3f(0, 0, 1);
-            glColor3f(0.50, 0.50, 0.50);
-            glBegin(GL_POLYGON);
-            for (var i = 0; i <= 12; i++) {
-                var r = i * 2 * Math.PI / 12;
-                glVertex3f(0.16*Math.cos(r), 0.16*Math.sin(r), 0.06);
-            }
-            glEnd();
-
-            glPopMatrix();
-            glPopMatrix();
-        }
-
-
-        // ============================================================
-        // drawFence() — Hàng rào gỗ hai bên đường
-        // ============================================================
-        function drawFence() {
-            glColor3f(0.62, 0.46, 0.28); // Nâu gỗ ấm
-            var sides = [1.8, -1.8];
-
-            for (var s = 0; s < sides.length; s++) {
-                var fx = sides[s];
-                var nx = (fx > 0) ? 1 : -1;
-
-                // Cọc đứng — dày hơn (±0.06) để nhìn rõ hơn từ xa
-                for (var fz = -15; fz <= 15; fz += 1.5) {
-                    glNormal3f(nx, 0, 0);
-                    glBegin(GL_QUADS);
-                        glVertex3f(fx-0.06, 0,   fz);  glVertex3f(fx+0.06, 0,   fz);
-                        glVertex3f(fx+0.06, 0.9, fz);  glVertex3f(fx-0.06, 0.9, fz);
-                    glEnd();
-                    // Đầu cọc vát (tam giác nhỏ trên đỉnh cọc)
-                    glBegin(GL_TRIANGLES);
-                        glVertex3f(fx-0.06, 0.9, fz);
-                        glVertex3f(fx+0.06, 0.9, fz);
-                        glVertex3f(fx,      1.05, fz);
-                    glEnd();
-                }
-
-                // Thanh ngang trên (y=0.58) — dùng GL_LINES
-                glBegin(GL_LINES);
-                for (var fz = -15; fz < 15; fz += 1.5) {
-                    glVertex3f(fx, 0.58, fz);  glVertex3f(fx, 0.58, fz+1.5);
-                }
-                glEnd();
-
-                // Thanh ngang dưới (y=0.28)
-                glBegin(GL_LINES);
-                for (var fz = -15; fz < 15; fz += 1.5) {
-                    glVertex3f(fx, 0.28, fz);  glVertex3f(fx, 0.28, fz+1.5);
-                }
-                glEnd();
-            }
-        }
-
-    </script>
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 </head>
+<body>
+<div id="ui">🏡 Làng nhỏ 3D</div>
+<div id="hint">Kéo để xoay · Cuộn để zoom · Chuột phải để dịch chuyển</div>
 
-<body onload="init()">
-    <h3>Làng nhỏ 3D</h3>
-    <noscript>
-        <p><b>Sorry, this page requires JavaScript!</b></p>
-    </noscript>
-    <div id="canvas-holder">
-        <canvas id="maincanvas" width="700" height="550"></canvas>
-    </div>
+<script>
+    // ============================================================
+    // SETUP — scene, camera, renderer, controls
+    // ============================================================
+    const scene  = new THREE.Scene();
+    const clock  = new THREE.Clock();
+    let   sunDeg = 30;   // độ, tăng theo thời gian
+
+    // Camera
+    const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 400);
+    camera.position.set(0, 24, 54);
+    camera.lookAt(0, 3, 0);
+
+    // Renderer
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(innerWidth, innerHeight);
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type    = THREE.PCFSoftShadowMap;
+    renderer.outputEncoding    = THREE.sRGBEncoding;
+    document.body.appendChild(renderer.domElement);
+
+    // OrbitControls
+    const controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.target.set(0, 3, 0);
+    controls.enableDamping  = true;
+    controls.dampingFactor  = 0.06;
+    controls.minDistance    = 8;
+    controls.maxDistance    = 90;
+    controls.maxPolarAngle  = Math.PI * 0.48;
+
+    window.addEventListener('resize', () => {
+        camera.aspect = innerWidth / innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(innerWidth, innerHeight);
+    });
+
+    // ============================================================
+    // HELPERS
+    // ============================================================
+    function mat(hex, roughness = 0.82, metalness = 0) {
+        return new THREE.MeshStandardMaterial({ color: hex, roughness, metalness });
+    }
+
+    function place(mesh, x, y, z, cast = true, receive = true) {
+        mesh.position.set(x, y, z);
+        if (cast)    mesh.castShadow    = true;
+        if (receive) mesh.receiveShadow = true;
+        scene.add(mesh);
+        return mesh;
+    }
+
+    function shadowAll(group) {
+        group.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true; }});
+    }
+
+    // ============================================================
+    // LIGHTS
+    // ============================================================
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.08);
+    scene.add(ambientLight);
+
+    const sunLight = new THREE.DirectionalLight(0xfff1d0, 1.4);
+    sunLight.castShadow              = true;
+    sunLight.shadow.mapSize.set(2048, 2048);
+    sunLight.shadow.camera.left      = -42;
+    sunLight.shadow.camera.right     =  42;
+    sunLight.shadow.camera.top       =  42;
+    sunLight.shadow.camera.bottom    = -42;
+    sunLight.shadow.camera.near      = 0.5;
+    sunLight.shadow.camera.far       = 100;
+    sunLight.shadow.bias             = -0.0008;
+    scene.add(sunLight);
+    scene.add(sunLight.target);   // target stays at origin
+
+    // Fog
+    const fogColor = new THREE.Color(0x7acff5);
+    scene.fog = new THREE.Fog(fogColor, 24, 62);
+
+    // ============================================================
+    // SKY SPHERE + STARS
+    // ============================================================
+    const skyMat    = new THREE.MeshBasicMaterial({ side: THREE.BackSide, color: 0x3a9fe8 });
+    const skySphere = new THREE.Mesh(new THREE.SphereGeometry(200, 32, 16), skyMat);
+    scene.add(skySphere);
+
+    // Stars — 220 random points scattered on upper hemisphere
+    const starPositions = [];
+    for (let i = 0; i < 220; i++) {
+        const theta = Math.random() * Math.PI * 2;
+        const phi   = Math.acos(1 - Math.random() * 0.55);
+        const r     = 140 + Math.random() * 40;
+        starPositions.push(
+            r * Math.sin(phi) * Math.cos(theta),
+            Math.abs(r * Math.cos(phi)) + 8,
+            r * Math.sin(phi) * Math.sin(theta)
+        );
+    }
+    const starGeo = new THREE.BufferGeometry();
+    starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starPositions, 3));
+    const starMat = new THREE.PointsMaterial({ color: 0xffffff, size: 1.1, transparent: true, opacity: 0 });
+    const stars   = new THREE.Points(starGeo, starMat);
+    scene.add(stars);
+
+    // ============================================================
+    // GROUND + DIRT PATCHES
+    // ============================================================
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(64, 46), mat(0x3d8a1e, 0.92));
+    ground.rotation.x = -Math.PI / 2;
+    ground.receiveShadow = true;
+    scene.add(ground);
+
+    [
+        [-9, -7, 1.8, 1.4], [5, -8, 1.4, 1.2], [-6,  3, 1.5, 1.0],
+        [ 8,  1, 1.2, 1.4], [-8,-14, 1.8, 1.2], [14, -6, 2.0, 1.5],
+    ].forEach(([x, z, sx, sz]) => {
+        const p = new THREE.Mesh(new THREE.PlaneGeometry(sx, sz), mat(0x7a5a30, 0.95));
+        p.rotation.x = -Math.PI / 2;
+        p.position.set(x, 0.01, z);
+        p.receiveShadow = true;
+        scene.add(p);
+    });
+
+    // ============================================================
+    // ROAD + SHOULDERS + CENTER DASHES
+    // ============================================================
+    const road = new THREE.Mesh(new THREE.PlaneGeometry(3.0, 46), mat(0x282828, 0.72));
+    road.rotation.x = -Math.PI / 2;
+    road.position.y = 0.015;
+    road.receiveShadow = true;
+    scene.add(road);
+
+    [-1.72, 1.72].forEach(sx => {
+        const sh = new THREE.Mesh(new THREE.PlaneGeometry(0.36, 46), mat(0x5a4830, 0.88));
+        sh.rotation.x = -Math.PI / 2;
+        sh.position.set(sx, 0.012, 0);
+        sh.receiveShadow = true;
+        scene.add(sh);
+    });
+
+    const dashMat = mat(0xeeeebb, 0.6);
+    for (let z = -21; z < 22; z += 3) {
+        const d = new THREE.Mesh(new THREE.PlaneGeometry(0.14, 1.5), dashMat);
+        d.rotation.x = -Math.PI / 2;
+        d.position.set(0, 0.022, z);
+        scene.add(d);
+    }
+
+    // ============================================================
+    // MOUNTAINS (dark brown, z=-19)
+    // ============================================================
+    [
+        { x: -28, h: 5.0, r: 7.0, sz: 0.46 },
+        { x: -16, h: 7.2, r: 8.5, sz: 0.50 },
+        { x:  -6, h: 9.0, r: 9.2, sz: 0.48 },
+        { x:   4, h: 6.5, r: 8.2, sz: 0.52 },
+        { x:  13, h: 8.5, r: 9.0, sz: 0.48 },
+        { x:  23, h: 5.2, r: 7.4, sz: 0.46 },
+    ].forEach(m => {
+        const mtn = new THREE.Mesh(new THREE.ConeGeometry(m.r, m.h, 7), mat(0x3c2010, 0.95));
+        mtn.position.set(m.x, m.h / 2, -19);
+        mtn.scale.z = m.sz;
+        mtn.castShadow    = true;
+        mtn.receiveShadow = true;
+        scene.add(mtn);
+    });
+
+    // ============================================================
+    // LAKE (animated wave vertices)
+    // ============================================================
+    const shoreBase = new THREE.Mesh(new THREE.PlaneGeometry(6.2, 4.4), mat(0x4a90c8, 0.6));
+    shoreBase.rotation.x = -Math.PI / 2;
+    shoreBase.position.set(11, 0.014, 13);
+    shoreBase.receiveShadow = true;
+    scene.add(shoreBase);
+
+    const lakeGeo = new THREE.PlaneGeometry(5, 3.4, 20, 14);
+    const lakeMat = new THREE.MeshStandardMaterial({
+        color: 0x1a72c0, roughness: 0.04, metalness: 0.18,
+        transparent: true, opacity: 0.90,
+    });
+    const lakeMesh = new THREE.Mesh(lakeGeo, lakeMat);
+    lakeMesh.rotation.x  = -Math.PI / 2;
+    lakeMesh.position.set(11, 0.022, 13);
+    lakeMesh.receiveShadow = true;
+    scene.add(lakeMesh);
+    const lakeBase = lakeGeo.attributes.position.array.slice(); // snapshot for wave animation
+
+    // ============================================================
+    // SUN MESH (glow + core)
+    // ============================================================
+    const sunGroup = new THREE.Group();
+    sunGroup.add(new THREE.Mesh(
+        new THREE.SphereGeometry(2.2, 24, 16),
+        new THREE.MeshBasicMaterial({ color: 0xffd060, transparent: true, opacity: 0.52 })
+    ));
+    sunGroup.add(new THREE.Mesh(
+        new THREE.SphereGeometry(1.5, 24, 16),
+        new THREE.MeshBasicMaterial({ color: 0xffee10 })
+    ));
+    scene.add(sunGroup);
+
+    // ============================================================
+    // CLOUDS (sphere clusters, animated)
+    // ============================================================
+    const clouds = [];
+    function createCloud(x, y, z, scale) {
+        const group  = new THREE.Group();
+        const cMat   = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.88 });
+        for (let i = 0; i < 7; i++) {
+            const s = new THREE.Mesh(
+                new THREE.SphereGeometry((0.40 + (i % 3) * 0.16) * scale, 12, 8),
+                cMat.clone()
+            );
+            s.position.set(
+                (i - 3) * 0.50 * scale,
+                Math.sin(i * 1.7) * 0.15 * scale,
+                Math.cos(i)       * 0.12 * scale
+            );
+            group.add(s);
+        }
+        group.position.set(x, y, z);
+        scene.add(group);
+        clouds.push({ mesh: group, baseY: y, speed: 0.012 + clouds.length * 0.007, phase: clouds.length * 1.45 });
+    }
+    createCloud(-18, 16, -12, 2.8);
+    createCloud(  5, 18, -14, 2.4);
+    createCloud( 18, 15, -11, 2.0);
+
+    // ============================================================
+    // BIRDS (V-shape Line objects, animated flight)
+    // ============================================================
+    const birds = [];
+    function createBird(startX, y, z, speed, phase) {
+        const group  = new THREE.Group();
+        const lMat   = new THREE.LineBasicMaterial({ color: 0x111118 });
+        [[-1, 0, 0], [1, 0, 0]].forEach(tip => {
+            const geo = new THREE.BufferGeometry();
+            geo.setAttribute('position', new THREE.Float32BufferAttribute([0,0,0, tip[0],tip[1],tip[2]], 3));
+            group.add(new THREE.Line(geo, lMat.clone()));
+        });
+        group.position.set(startX, y, z);
+        scene.add(group);
+        birds.push({ mesh: group, startX, y, speed, phase });
+    }
+    createBird(-28, 17, -15, 0.050, 0.0);
+    createBird(-18, 19, -13, 0.032, 1.3);
+    createBird( -8, 16, -16, 0.058, 2.6);
+    createBird(  2, 20, -14, 0.040, 0.8);
+    createBird( 12, 18, -15, 0.044, 1.9);
+    createBird( 22, 15, -13, 0.046, 3.2);
+
+    // ============================================================
+    // HOUSES (5 nhà với màu mái khác nhau)
+    // ============================================================
+    function createHouse(x, z, roofHex, scaleXZ, scaleY, rotYDeg) {
+        const group  = new THREE.Group();
+        const wallM  = mat(0xf2e5ca, 0.82);
+        const roofM  = mat(roofHex,  0.72);
+        const chiM   = mat(0x8a2810, 0.88);
+        const doorM  = mat(0x5a2c10, 0.85);
+        const glassM = new THREE.MeshStandardMaterial({
+            color: 0x88ccff, roughness: 0.08, metalness: 0.05,
+            transparent: true, opacity: 0.76,
+        });
+        const frameM = mat(0x4a3010, 0.85);
+
+        // Walls
+        const wall = new THREE.Mesh(new THREE.BoxGeometry(3, 2.5, 3), wallM);
+        wall.position.y = 1.25;
+        group.add(wall);
+
+        // Pyramid roof (4-sided cone)
+        const roof = new THREE.Mesh(new THREE.ConeGeometry(2.3, 1.9, 4), roofM);
+        roof.position.y = 3.45;
+        roof.rotation.y = Math.PI / 4;
+        group.add(roof);
+
+        // Chimney
+        const chi = new THREE.Mesh(new THREE.BoxGeometry(0.38, 1.25, 0.38), chiM);
+        chi.position.set(0.72, 3.55, 0);
+        group.add(chi);
+
+        // Door
+        const door = new THREE.Mesh(new THREE.BoxGeometry(0.68, 1.25, 0.06), doorM);
+        door.position.set(0, 0.625, 1.535);
+        group.add(door);
+
+        // Door knob
+        const knob = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 6), mat(0xc89a20, 0.4, 0.5));
+        knob.position.set(0.24, 0.62, 1.565);
+        group.add(knob);
+
+        // Step
+        const step = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.09, 0.54), mat(0x9a8870, 0.88));
+        step.position.set(0, 0.045, 1.78);
+        group.add(step);
+
+        // Front windows (2)
+        [[-0.88, 1.48], [0.88, 1.48]].forEach(([wx, wy]) => {
+            const fr = new THREE.Mesh(new THREE.BoxGeometry(0.60, 0.60, 0.07), frameM);
+            fr.position.set(wx, wy, 1.518);
+            group.add(fr);
+            const gl = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.48, 0.07), glassM.clone());
+            gl.position.set(wx, wy, 1.522);
+            group.add(gl);
+        });
+
+        // Side window (left wall)
+        const sfr = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.56, 0.56), frameM);
+        sfr.position.set(-1.518, 1.4, 0);
+        group.add(sfr);
+        const sgl = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.44, 0.44), glassM.clone());
+        sgl.position.set(-1.523, 1.4, 0);
+        group.add(sgl);
+
+        shadowAll(group);
+        group.position.set(x, 0, z);
+        group.rotation.y = rotYDeg * Math.PI / 180;
+        group.scale.set(scaleXZ, scaleY, scaleXZ);
+        scene.add(group);
+    }
+
+    createHouse(-8, -5, 0xc84f1e, 1.00, 1.00,   0);  // brick red
+    createHouse( 4, -6, 0x1060b8, 0.90, 1.28,  25);  // sea blue, tall
+    createHouse(-5,  5, 0xb38a30, 1.12, 0.88, -20);  // gold, wide
+    createHouse( 7,  3, 0x993d22, 0.88, 1.15,  40);  // dark red, slim
+    createHouse(-7,-12, 0x7a4a90, 1.00, 0.92,   0);  // purple
+
+    // ============================================================
+    // TREES (7 cây, 3-tier foliage cones)
+    // ============================================================
+    function createTree(x, z, scale) {
+        const g = new THREE.Group();
+
+        const trunk = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.18 * scale, 0.26 * scale, 2.2 * scale, 8),
+            mat(0x6a3c10, 0.92)
+        );
+        trunk.position.y = 1.1 * scale;
+        g.add(trunk);
+
+        [[1.8, 2.2, 2.5, 0x1a7a20], [1.3, 1.8, 3.8, 0x157018], [0.85, 1.5, 5.0, 0x106012]]
+        .forEach(([r, h, y, c]) => {
+            const cone = new THREE.Mesh(new THREE.ConeGeometry(r * scale, h * scale, 8), mat(c, 0.92));
+            cone.position.y = y * scale;
+            g.add(cone);
+        });
+
+        shadowAll(g);
+        g.position.set(x, 0, z);
+        scene.add(g);
+    }
+
+    createTree(-12,  0, 1.00);
+    createTree(  5,  8, 1.30);
+    createTree( 10, -4, 0.82);
+    createTree( -3,  9, 1.10);
+    createTree( 11,  7, 1.38);
+    createTree(-10, -9, 0.90);
+    createTree(  6, -9, 1.20);
+
+    // ============================================================
+    // WINDMILL
+    // ============================================================
+    let bladeGroup = null;
+    (function createWindmill() {
+        const g = new THREE.Group();
+
+        // Tower (slightly tapered cylinder)
+        const tower = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.58, 6.5, 10), mat(0xc8c0a8, 0.80));
+        tower.position.y = 3.25;
+        g.add(tower);
+
+        // Blades
+        const blades = new THREE.Group();
+        blades.position.set(0, 6.6, 0.45);
+        for (let i = 0; i < 3; i++) {
+            const pivot = new THREE.Group();
+            pivot.rotation.z = i * (Math.PI * 2 / 3);
+            const blade = new THREE.Mesh(new THREE.BoxGeometry(0.28, 2.6, 0.07), mat(0xe8e0d0, 0.7));
+            blade.position.y = 1.3;
+            pivot.add(blade);
+            blades.add(pivot);
+        }
+        // Hub
+        blades.add(new THREE.Mesh(new THREE.SphereGeometry(0.22, 12, 8), mat(0x888880, 0.6)));
+        g.add(blades);
+        bladeGroup = blades;
+
+        shadowAll(g);
+        g.position.set(-11, 0, 6);
+        scene.add(g);
+    })();
+
+    // ============================================================
+    // FENCE (posts + rails along both sides of road)
+    // ============================================================
+    (function createFence() {
+        const postM = mat(0x8a6030, 0.88);
+        const railM = mat(0x7a5528, 0.85);
+        [-2.2, 2.2].forEach(sx => {
+            // Posts every 1.5 units
+            for (let z = -15; z <= 15; z += 1.5) {
+                const post = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.95, 0.12), postM);
+                post.position.set(sx, 0.475, z);
+                post.castShadow = true; post.receiveShadow = true;
+                scene.add(post);
+                // Pointed tip
+                const tip = new THREE.Mesh(new THREE.ConeGeometry(0.088, 0.20, 4), postM);
+                tip.position.set(sx, 1.05, z);
+                tip.rotation.y = Math.PI / 4;
+                scene.add(tip);
+            }
+            // Two horizontal rails
+            [0.30, 0.65].forEach(ry => {
+                const rail = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, 31), railM);
+                rail.position.set(sx, ry, 0);
+                rail.castShadow = true;
+                scene.add(rail);
+            });
+        });
+    })();
+
+    // ============================================================
+    // LAMP POSTS (8 pairs, glow at night)
+    // ============================================================
+    const lampBulbMats   = [];
+    const lampPtLights   = [];
+    (function createLampPosts() {
+        const lampZList = [-14, -10, -6, -2, 2, 6, 10, 14];
+        [[-2.8, -1], [2.8, 1]].forEach(pair => {
+            const sx = pair[0], dir = pair[1];
+            lampZList.forEach(lz => {
+                const g = new THREE.Group();
+
+                // Pole
+                const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.055, 4.2, 8), mat(0x4a4f58, 0.7));
+                pole.position.y = 2.1;
+                g.add(pole);
+
+                // Arm
+                const arm = new THREE.Mesh(new THREE.BoxGeometry(0.65, 0.05, 0.05), mat(0x4a4f58, 0.7));
+                arm.position.set(dir * 0.325, 4.25, 0);
+                g.add(arm);
+
+                // Fixture
+                const fix = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.12, 0.22, 8), mat(0x3a3f44, 0.6));
+                fix.position.set(dir * 0.62, 4.16, 0);
+                g.add(fix);
+
+                // Bulb (emissive material)
+                const bulbMat = new THREE.MeshStandardMaterial({
+                    color: 0xffcc44,
+                    emissive: new THREE.Color(0xff8800),
+                    emissiveIntensity: 0,
+                });
+                const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.12, 10, 8), bulbMat);
+                bulb.position.set(dir * 0.62, 4.05, 0);
+                g.add(bulb);
+                lampBulbMats.push(bulbMat);
+
+                // PointLight follows each lamp
+                const ptL = new THREE.PointLight(0xffaa44, 0, 10);
+                ptL.position.set(sx + dir * 0.62, 4.05, lz);
+                scene.add(ptL);
+                lampPtLights.push(ptL);
+
+                g.position.set(sx, 0, lz);
+                shadowAll(g);
+                scene.add(g);
+            });
+        });
+    })();
+
+    // ============================================================
+    // MOVING CAR (drives north↔south on left lane)
+    // ============================================================
+    const carHeadMats = [];
+    let   carGroup    = null;
+    (function createCar() {
+        carGroup = new THREE.Group();
+        const bodyM  = mat(0xcc1a14, 0.55);
+        const cabinM = mat(0xaa1410, 0.60);
+        const darkM  = mat(0x1a1a1e, 0.85);
+        const glassM = new THREE.MeshStandardMaterial({
+            color: 0x88ccee, roughness: 0.08, transparent: true, opacity: 0.72,
+        });
+
+        // Body
+        const body = new THREE.Mesh(new THREE.BoxGeometry(0.76, 0.44, 1.44), bodyM);
+        body.position.y = 0.32;
+        carGroup.add(body);
+
+        // Cabin
+        const cabin = new THREE.Mesh(new THREE.BoxGeometry(0.64, 0.35, 0.88), cabinM);
+        cabin.position.set(0, 0.74, 0.10);
+        carGroup.add(cabin);
+
+        // Windshield
+        const ws = new THREE.Mesh(new THREE.BoxGeometry(0.60, 0.30, 0.04), glassM);
+        ws.position.set(0, 0.74, -0.34);
+        carGroup.add(ws);
+
+        // Rear window
+        const rw = new THREE.Mesh(new THREE.BoxGeometry(0.60, 0.28, 0.04), glassM.clone());
+        rw.position.set(0, 0.74, 0.55);
+        carGroup.add(rw);
+
+        // Wheels
+        const wGeo = new THREE.CylinderGeometry(0.16, 0.16, 0.10, 12);
+        [[-0.40, -0.50], [-0.40, 0.48], [0.40, -0.50], [0.40, 0.48]].forEach(([wx, wz]) => {
+            const w = new THREE.Mesh(wGeo, darkM);
+            w.rotation.z = Math.PI / 2;
+            w.position.set(wx, 0.16, wz);
+            carGroup.add(w);
+        });
+
+        // Headlights
+        [-0.22, 0.22].forEach(hx => {
+            const hm = new THREE.MeshBasicMaterial({ color: 0xfffaaa });
+            const hl = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.09, 0.025), hm);
+            hl.position.set(hx, 0.30, -0.73);
+            carGroup.add(hl);
+            carHeadMats.push(hm);
+        });
+
+        // Taillights
+        [-0.24, 0.24].forEach(hx => {
+            const tl = new THREE.Mesh(
+                new THREE.BoxGeometry(0.10, 0.07, 0.02),
+                new THREE.MeshBasicMaterial({ color: 0x440000 })
+            );
+            tl.position.set(hx, 0.30, 0.73);
+            carGroup.add(tl);
+        });
+
+        shadowAll(carGroup);
+        carGroup.position.set(-0.6, 0, -18);
+        scene.add(carGroup);
+    })();
+
+    // ============================================================
+    // PEOPLE (2 nhân vật đứng gần cổng)
+    // ============================================================
+    const personGroups = [];
+    function createPerson(x, z, shirtHex, pantsHex, rotY) {
+        const g      = new THREE.Group();
+        const skinM  = mat(0xffe0b0, 0.80);
+        const shirtM = mat(shirtHex, 0.80);
+        const pantsM = mat(pantsHex, 0.85);
+        const hairM  = mat(0x100800, 0.88);
+        const shoeM  = mat(0x180f08, 0.90);
+
+        // Head
+        const head = new THREE.Mesh(new THREE.SphereGeometry(0.22, 16, 12), skinM);
+        head.position.y = 1.60;
+        g.add(head);
+
+        // Hair (half-sphere cap)
+        const hair = new THREE.Mesh(
+            new THREE.SphereGeometry(0.235, 16, 12, 0, Math.PI * 2, 0, Math.PI / 1.8),
+            hairM
+        );
+        hair.position.y = 1.60;
+        g.add(hair);
+
+        // Body
+        const body = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.18, 0.58, 10), shirtM);
+        body.position.y = 1.07;
+        g.add(body);
+
+        // Arms
+        [[-0.22, 0.22], [0.22, -0.22]].forEach(([ax, rz]) => {
+            const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.058, 0.058, 0.46, 8), shirtM);
+            arm.position.set(ax, 1.06, 0);
+            arm.rotation.z = rz * 0.22 / 0.22;
+            g.add(arm);
+        });
+
+        // Legs + shoes
+        [-0.10, 0.10].forEach(lx => {
+            const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.52, 8), pantsM);
+            leg.position.set(lx, 0.55, 0);
+            g.add(leg);
+            const shoe = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.10, 0.22), shoeM);
+            shoe.position.set(lx, 0.28, 0.04);
+            g.add(shoe);
+        });
+
+        shadowAll(g);
+        g.position.set(x, 0, z);
+        g.rotation.y = rotY;
+        scene.add(g);
+        personGroups.push(g);
+    }
+
+    createPerson(-0.8, 10.5, 0x3366cc, 0x224488,  0.20);  // blue shirt
+    createPerson(-2.2, 11.2, 0xdd4499, 0xffcc00, -0.30);  // pink shirt
+
+    // ============================================================
+    // ANIMATE LOOP
+    // ============================================================
+    function animate() {
+        requestAnimationFrame(animate);
+        const time = clock.getElapsedTime();
+
+        // Full day cycle = 120 seconds
+        sunDeg = (time * 3.0) % 360;
+        const t = Math.max(0, Math.sin(sunDeg * Math.PI / 180)); // 0=night, 1=noon
+
+        updateDayNight(t);
+        updateSun(t);
+        updateClouds(time, t);
+        updateBirds(time, t);
+        updateCar(time);
+        updateLake(time);
+
+        // Windmill blades
+        if (bladeGroup) bladeGroup.rotation.z += 0.022;
+
+        // People idle bob
+        personGroups.forEach((p, i) => {
+            p.position.y = Math.sin(time * 1.4 + i * 0.9) * 0.04;
+        });
+
+        controls.update();
+        renderer.render(scene, camera);
+    }
+
+    // ---- Day/Night ----
+    function updateDayNight(t) {
+        // Sky sphere gradient (night: deep navy → day: bright blue)
+        skyMat.color.setRGB(0.02 + 0.22 * t, 0.04 + 0.56 * t, 0.10 + 0.80 * t);
+
+        // Ambient light
+        ambientLight.intensity = 0.07 + 0.68 * t;
+        ambientLight.color.setRGB(0.50 + 0.50 * t, 0.60 + 0.40 * t, 0.90 + 0.10 * t);
+
+        // Fog color matches sky horizon
+        scene.fog.color.setRGB(0.05 + 0.44 * t, 0.08 + 0.72 * t, 0.12 + 0.76 * t);
+
+        // Stars fade in at night
+        starMat.opacity = Math.max(0, 1.0 - t * 4.2);
+
+        // Lamp posts: glow when dark (t < ~0.25)
+        const lampT = Math.max(0, 1.0 - t * 4.5);
+        lampBulbMats.forEach(m => { m.emissiveIntensity = lampT * 1.8; });
+        lampPtLights.forEach(l  => { l.intensity          = lampT * 1.2; });
+
+        // Car headlights on at dusk/night
+        carHeadMats.forEach(m => { m.color.setHex(t < 0.35 ? 0xfff8cc : 0x887040); });
+    }
+
+    // ---- Sun position + light ----
+    function updateSun(t) {
+        const rad = sunDeg * Math.PI / 180;
+        const sx  = 28 * Math.cos(rad);
+        const sy  = 28 * Math.sin(rad);
+
+        sunGroup.position.set(sx, sy, -19.5);
+        sunGroup.visible = sy > 0;
+
+        // DirectionalLight chases sun across the sky
+        sunLight.position.set(sx, Math.max(1, sy), 14);
+        sunLight.intensity = Math.max(0, t) * 1.45;
+        // Warm orange at sunrise/sunset, white at noon
+        const warm = t * t; // extra warm transition
+        sunLight.color.setRGB(1.0, 0.88 + 0.12 * warm, 0.60 + 0.40 * warm);
+    }
+
+    // ---- Cloud drift + night tinting ----
+    function updateClouds(time, t) {
+        const cR = 0.18 + 0.82 * t, cG = 0.18 + 0.78 * t, cB = 0.22 + 0.74 * t;
+        clouds.forEach(c => {
+            c.mesh.position.x += c.speed;
+            c.mesh.position.y  = c.baseY + Math.sin(time * 0.28 + c.phase) * 0.45;
+            if (c.mesh.position.x > 44) c.mesh.position.x = -44;
+            c.mesh.children.forEach(s => s.material.color.setRGB(cR, cG, cB));
+        });
+    }
+
+    // ---- Bird flight + wing flap ----
+    function updateBirds(time, t) {
+        const vis = t > 0.12;
+        birds.forEach(b => {
+            b.mesh.visible = vis;
+            if (!vis) return;
+            const bx = b.startX + time * b.speed * 60;
+            b.mesh.position.x = ((bx + 30) % 60) - 30;
+            b.mesh.position.y = b.y + Math.sin(time * 0.14 + b.phase) * 0.5;
+            const wf = Math.sin(time * 3.5 + b.phase) * 0.44;
+            b.mesh.children.forEach(line => {
+                const pos = line.geometry.attributes.position;
+                pos.setY(1, wf);
+                pos.needsUpdate = true;
+            });
+        });
+    }
+
+    // ---- Car drives back and forth on road ----
+    function updateCar(time) {
+        const period = 8.0;
+        const cycle  = time % (period * 2);
+        let cz;
+        if (cycle < period) {
+            cz = -18 + (cycle / period) * 36;
+            carGroup.rotation.y = 0;
+        } else {
+            cz = 18 - ((cycle - period) / period) * 36;
+            carGroup.rotation.y = Math.PI;
+        }
+        carGroup.position.z = cz;
+    }
+
+    // ---- Lake wave vertex animation ----
+    function updateLake(time) {
+        const pos  = lakeGeo.attributes.position;
+        const base = lakeBase;
+        for (let i = 0; i < pos.count; i++) {
+            const lx = base[i * 3], ly = base[i * 3 + 1];
+            const w  = Math.sin(lx * 0.85 + time * 1.3) * 0.022
+                     + Math.cos(ly * 0.90 + time * 0.95) * 0.016;
+            pos.setZ(i, w);
+        }
+        pos.needsUpdate = true;
+        lakeGeo.computeVertexNormals();
+    }
+
+    animate();
+</script>
 </body>
-
 </html>
