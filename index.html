@@ -105,7 +105,7 @@
 
     // Fog
     const fogColor = new THREE.Color(0x7acff5);
-    scene.fog = new THREE.Fog(fogColor, 24, 62);
+    scene.fog = new THREE.Fog(fogColor, 35, 90);
 
     // ============================================================
     // SKY SPHERE + STARS
@@ -231,6 +231,23 @@
     scene.add(sunGroup);
 
     // ============================================================
+    // MOON MESH (xuất hiện ban đêm, đối diện mặt trời)
+    // ============================================================
+    const moonGroup = new THREE.Group();
+    // Hào quang nhạt
+    moonGroup.add(new THREE.Mesh(
+        new THREE.SphereGeometry(1.5, 20, 14),
+        new THREE.MeshBasicMaterial({ color: 0xd0e8ff, transparent: true, opacity: 0.30 })
+    ));
+    // Đĩa trăng
+    moonGroup.add(new THREE.Mesh(
+        new THREE.SphereGeometry(1.0, 20, 14),
+        new THREE.MeshBasicMaterial({ color: 0xdde8ff })
+    ));
+    moonGroup.visible = false;
+    scene.add(moonGroup);
+
+    // ============================================================
     // CLOUDS (sphere clusters, animated)
     // ============================================================
     const clouds = [];
@@ -279,6 +296,9 @@
     createBird(  2, 20, -14, 0.040, 0.8);
     createBird( 12, 18, -15, 0.044, 1.9);
     createBird( 22, 15, -13, 0.046, 3.2);
+
+    // Mảng lưu material cửa sổ cho hiệu ứng sáng ban đêm
+    const windowMats = [];
 
     // ============================================================
     // HOUSES (5 nhà với màu mái khác nhau)
@@ -331,18 +351,26 @@
             const fr = new THREE.Mesh(new THREE.BoxGeometry(0.60, 0.60, 0.07), frameM);
             fr.position.set(wx, wy, 1.518);
             group.add(fr);
-            const gl = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.48, 0.07), glassM.clone());
+            const gm = glassM.clone();
+            gm.emissive = new THREE.Color(0xffdd88);
+            gm.emissiveIntensity = 0;
+            const gl = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.48, 0.07), gm);
             gl.position.set(wx, wy, 1.522);
             group.add(gl);
+            windowMats.push(gm);
         });
 
         // Side window (left wall)
         const sfr = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.56, 0.56), frameM);
         sfr.position.set(-1.518, 1.4, 0);
         group.add(sfr);
-        const sgl = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.44, 0.44), glassM.clone());
+        const sgm = glassM.clone();
+        sgm.emissive = new THREE.Color(0xffdd88);
+        sgm.emissiveIntensity = 0;
+        const sgl = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.44, 0.44), sgm);
         sgl.position.set(-1.523, 1.4, 0);
         group.add(sgl);
+        windowMats.push(sgm);
 
         shadowAll(group);
         group.position.set(x, 0, z);
@@ -389,6 +417,101 @@
     createTree( 11,  7, 1.38);
     createTree(-10, -9, 0.90);
     createTree(  6, -9, 1.20);
+    // 4 cây bổ sung ở rìa làng
+    createTree(-14,  -5, 0.95);
+    createTree(  8, -12, 1.05);
+    createTree( -8,  12, 1.15);
+    createTree( 14,   5, 0.88);
+
+    // ============================================================
+    // GIẾNG ĐÁ
+    // ============================================================
+    (function createWell() {
+        const g = new THREE.Group();
+        // Thành giếng — hình trụ tường
+        const stoneM = mat(0x8a7a6a, 0.88);
+        const wall = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.65, 0.70, 0.80, 16, 1, true),
+            stoneM
+        );
+        wall.position.y = 0.40;
+        g.add(wall);
+        // Đáy
+        const base = new THREE.Mesh(new THREE.CylinderGeometry(0.70, 0.70, 0.12, 16), stoneM);
+        base.position.y = 0.06;
+        g.add(base);
+        // 2 cột gỗ
+        const poleM = mat(0x5a3a1e, 0.85);
+        [-0.52, 0.52].forEach(px => {
+            const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 1.50, 8), poleM);
+            pole.position.set(px, 1.15, 0);
+            g.add(pole);
+        });
+        // Thanh ngang
+        const beam = new THREE.Mesh(new THREE.BoxGeometry(1.14, 0.12, 0.12), poleM);
+        beam.position.y = 1.90;
+        g.add(beam);
+        // Xô
+        const bucketM = mat(0x7a5a2a, 0.80);
+        const bucket = new THREE.Mesh(new THREE.CylinderGeometry(0.10, 0.08, 0.22, 10), bucketM);
+        bucket.position.set(0, 1.55, 0);
+        g.add(bucket);
+        shadowAll(g);
+        g.position.set(2, 0, 1);
+        scene.add(g);
+    })();
+
+    // ============================================================
+    // GHẾ CÔNG VIÊN (2 cái)
+    // ============================================================
+    function createBench(x, z, rotY) {
+        const g = new THREE.Group();
+        const woodM = mat(0x8b5e2f, 0.82);
+        const legM  = mat(0x4a3010, 0.90);
+        // Mặt ngồi
+        const seat = new THREE.Mesh(new THREE.BoxGeometry(1.20, 0.08, 0.45), woodM);
+        seat.position.y = 0.42;
+        g.add(seat);
+        // Lưng tựa
+        const back = new THREE.Mesh(new THREE.BoxGeometry(1.20, 0.30, 0.06), woodM);
+        back.position.set(0, 0.70, -0.19);
+        g.add(back);
+        // 4 chân
+        [[-0.50,-0.18],[0.50,-0.18],[-0.50,0.18],[0.50,0.18]].forEach(([lx,lz]) => {
+            const leg = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.42, 0.06), legM);
+            leg.position.set(lx, 0.21, lz);
+            g.add(leg);
+        });
+        shadowAll(g);
+        g.position.set(x, 0, z);
+        g.rotation.y = rotY;
+        scene.add(g);
+    }
+    createBench(-6,  8,  0.3);
+    createBench( 5,  6, -0.4);
+
+    // ============================================================
+    // BỤI CÂY TRANG TRÍ (gần các ngôi nhà)
+    // ============================================================
+    function createBush(x, z, scale) {
+        const g    = new THREE.Group();
+        const busM = mat(0x1e5e28, 0.82);
+        const offsets = [[0,0,0],[0.28,0,0.18],[-0.25,0,0.20],[0.10,0,-0.26],[0.14,0.18,0.08]];
+        offsets.forEach(([bx,by,bz]) => {
+            const r = (0.22 + Math.random() * 0.12) * scale;
+            const s = new THREE.Mesh(new THREE.SphereGeometry(r, 8, 6), busM);
+            s.position.set(bx * scale, by * scale + r, bz * scale);
+            g.add(s);
+        });
+        shadowAll(g);
+        g.position.set(x, 0, z);
+        scene.add(g);
+    }
+    createBush(-6.5,  -6.5, 1.0);
+    createBush(  5.5,  -7.5, 0.85);
+    createBush( -4.5,   5.5, 0.90);
+    createBush(  8.5,   3.5, 0.80);
+    createBush( -8.0, -12.5, 0.75);
 
     // ============================================================
     // WINDMILL
@@ -504,6 +627,16 @@
     })();
 
     // ============================================================
+    // WARM POINT LIGHTS (như ck.html — chiếu ấm lên khu nhà)
+    // ============================================================
+    const warmLight1 = new THREE.PointLight(0xffb04f, 0, 18);
+    warmLight1.position.set(-4, 4, 0);
+    scene.add(warmLight1);
+    const warmLight2 = new THREE.PointLight(0xffb04f, 0, 18);
+    warmLight2.position.set(5, 4, -2);
+    scene.add(warmLight2);
+
+    // ============================================================
     // MOVING CAR (drives north↔south on left lane)
     // ============================================================
     const carHeadMats = [];
@@ -570,6 +703,47 @@
         scene.add(carGroup);
     })();
 
+    // Xe vàng — lane phải x=+0.6, khởi đầu pha ngược
+    const carHeadMats2 = [];
+    let   carGroup2    = null;
+    (function createCar2() {
+        carGroup2 = new THREE.Group();
+        const bodyM  = mat(0xd4a800, 0.55);
+        const cabinM = mat(0xb89000, 0.60);
+        const darkM  = mat(0x1a1a1e, 0.85);
+        const glassM = new THREE.MeshStandardMaterial({
+            color: 0x88ccee, roughness: 0.08, transparent: true, opacity: 0.72,
+        });
+        const body = new THREE.Mesh(new THREE.BoxGeometry(0.76, 0.44, 1.44), bodyM);
+        body.position.y = 0.32; carGroup2.add(body);
+        const cabin = new THREE.Mesh(new THREE.BoxGeometry(0.64, 0.35, 0.88), cabinM);
+        cabin.position.set(0, 0.74, 0.10); carGroup2.add(cabin);
+        const ws = new THREE.Mesh(new THREE.BoxGeometry(0.60, 0.30, 0.04), glassM);
+        ws.position.set(0, 0.74, -0.34); carGroup2.add(ws);
+        const rw = new THREE.Mesh(new THREE.BoxGeometry(0.60, 0.28, 0.04), glassM.clone());
+        rw.position.set(0, 0.74, 0.55); carGroup2.add(rw);
+        const wGeo = new THREE.CylinderGeometry(0.16, 0.16, 0.10, 12);
+        [[-0.40,-0.50],[-0.40,0.48],[0.40,-0.50],[0.40,0.48]].forEach(([wx,wz]) => {
+            const w = new THREE.Mesh(wGeo, darkM);
+            w.rotation.z = Math.PI / 2; w.position.set(wx, 0.16, wz); carGroup2.add(w);
+        });
+        [-0.22, 0.22].forEach(hx => {
+            const hm = new THREE.MeshBasicMaterial({ color: 0xfffaaa });
+            const hl = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.09, 0.025), hm);
+            hl.position.set(hx, 0.30, -0.73); carGroup2.add(hl);
+            carHeadMats2.push(hm);
+        });
+        [-0.24, 0.24].forEach(hx => {
+            const tl = new THREE.Mesh(new THREE.BoxGeometry(0.10,0.07,0.02),
+                new THREE.MeshBasicMaterial({ color: 0x440000 }));
+            tl.position.set(hx, 0.30, 0.73);
+            carGroup2.add(tl);
+        });
+        shadowAll(carGroup2);
+        carGroup2.position.set(0.6, 0, 18); // khởi đầu ngược đầu đường
+        scene.add(carGroup2);
+    })();
+
     // ============================================================
     // PEOPLE (2 nhân vật đứng gần cổng)
     // ============================================================
@@ -625,8 +799,9 @@
         personGroups.push(g);
     }
 
-    createPerson(-0.8, 10.5, 0x3366cc, 0x224488,  0.20);  // blue shirt
-    createPerson(-2.2, 11.2, 0xdd4499, 0xffcc00, -0.30);  // pink shirt
+    // Đặt người ra lề đường (x=-3.8, x=-5) tránh bị xe đâm
+    createPerson(-3.8, 10.5, 0x3366cc, 0x224488, -0.50);  // blue shirt — nhìn vào đường
+    createPerson(-5.0, 11.0, 0xdd4499, 0xffcc00,  0.40);  // pink shirt — nhìn vào bạn
 
     // ============================================================
     // ANIMATE LOOP
@@ -679,7 +854,17 @@
         lampPtLights.forEach(l  => { l.intensity          = lampT * 1.2; });
 
         // Car headlights on at dusk/night
-        carHeadMats.forEach(m => { m.color.setHex(t < 0.35 ? 0xfff8cc : 0x887040); });
+        carHeadMats.forEach(m  => { m.color.setHex(t < 0.35 ? 0xfff8cc : 0x887040); });
+        carHeadMats2.forEach(m => { m.color.setHex(t < 0.35 ? 0xfff8cc : 0x887040); });
+
+        // Cửa sổ nhà sáng ban đêm
+        const winT = Math.max(0, 0.6 - t * 2.5);
+        windowMats.forEach(m => { m.emissiveIntensity = winT; });
+
+        // Warm lights — mạnh hơn ban đêm
+        const wl = Math.max(0, 0.85 - t * 2.8);
+        warmLight1.intensity = wl * 1.4;
+        warmLight2.intensity = wl * 1.2;
     }
 
     // ---- Sun position + light ----
@@ -690,6 +875,12 @@
 
         sunGroup.position.set(sx, sy, -19.5);
         sunGroup.visible = sy > 0;
+
+        // Mặt trăng — đối diện mặt trời (góc + 180°)
+        const mx = 28 * Math.cos(rad + Math.PI);
+        const my = 28 * Math.sin(rad + Math.PI);
+        moonGroup.position.set(mx, my, -19.5);
+        moonGroup.visible = my > 1.5;  // chỉ hiện khi đủ cao trên đường chân trời
 
         // DirectionalLight chases sun across the sky
         sunLight.position.set(sx, Math.max(1, sy), 14);
@@ -731,16 +922,24 @@
     // ---- Car drives back and forth on road ----
     function updateCar(time) {
         const period = 8.0;
-        const cycle  = time % (period * 2);
-        let cz;
+        // Xe đỏ — lane trái x=-0.6, xuất phát từ phía nam (-18)
+        const cycle = time % (period * 2);
         if (cycle < period) {
-            cz = -18 + (cycle / period) * 36;
+            carGroup.position.z = -18 + (cycle / period) * 36;
             carGroup.rotation.y = 0;
         } else {
-            cz = 18 - ((cycle - period) / period) * 36;
+            carGroup.position.z = 18 - ((cycle - period) / period) * 36;
             carGroup.rotation.y = Math.PI;
         }
-        carGroup.position.z = cz;
+        // Xe vàng — lane phải x=+0.6, lệch pha 180° (xuất phát từ phía bắc)
+        const cycle2 = (time + period) % (period * 2);
+        if (cycle2 < period) {
+            carGroup2.position.z = -18 + (cycle2 / period) * 36;
+            carGroup2.rotation.y = 0;
+        } else {
+            carGroup2.position.z = 18 - ((cycle2 - period) / period) * 36;
+            carGroup2.rotation.y = Math.PI;
+        }
     }
 
     // ---- Lake wave vertex animation ----
